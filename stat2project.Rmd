@@ -1,0 +1,158 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r}
+setwd('/Users/chriscraig/Desktop/Project')
+us_fires = read.csv('FW_Veg_Rem_Combined.csv')
+earthquakes = read.csv('database.csv')
+brazil_fires = read.csv('amazon 2.csv')
+pacific_canes = read.csv('pacific.csv')
+atlantic_canes = read.csv('atlantic.csv')
+```
+
+```{r}
+#filtering out columns
+library(dplyr)
+us_fires = as.data.frame(us_fires)
+us_fires <- subset(us_fires, select=c('fire_size', 'fire_size_class', 'stat_cause_descr', 'latitude', 'longitude', 'state', 'disc_date_pre', 'fire_mag', 'remoteness'))
+earthquakes <-subset(earthquakes, select=c('Date','Latitude', 'Longitude' , 'Depth', 'Magnitude', 'Magnitude.Type', 'Root.Mean.Square', 'Magnitude.Source' ))
+pacific_canes <- subset(pacific_canes, select=c('Name', 'Date', 'Status', 'Latitude', 'Longitude', 'Maximum.Wind'))
+atlantic_canes <- subset(atlantic_canes, select=c('Name', 'Date', 'Status', 'Latitude', 'Longitude', 'Maximum.Wind'))
+```
+
+```{r}
+#sorting out dates
+us_fires$disc_date_pre <- as.Date(us_fires$disc_date_pre,
+                        format = "%m/%d/%Y")
+earthquakes$Date <- as.Date(earthquakes$Date,
+                        format = "%m/%d/%Y")
+quakies <- group_by(earthquakes, Date, Depth) %>% summarize(magnitude = mean(Magnitude))
+pacific_canes$Date <- as.character(pacific_canes$Date)
+atlantic_canes$Date <- as.character(atlantic_canes$Date)
+pacific_canes$Date <- as.Date(pacific_canes$Date, 
+                        format = '%Y%m%d', origin = "1900-01-01")
+atlantic_canes$Date <- as.Date(atlantic_canes$Date, 
+                        format = '%Y%m%d')
+brazil_fires$date <- as.Date(brazil_fires$date, 
+                             format = "%Y-%m-%d")
+```
+
+The three main components of time series are general trends, seasonality, and irregular fluctuations. 
+
+```{r}
+library(lubridate)
+brazil_month <- brazil_fires %>% group_by(month=floor_date(date, "month")) %>%
+   summarize(amount=sum(number))
+
+```
+
+```{r}
+#glimpse at counts over time
+library(ggplot2)
+library(gridExtra)
+p1 <- ggplot(data = us_fires)+
+  geom_histogram(aes(x = disc_date_pre), bins = 50)+
+  ggtitle('Fires over time')+
+  xlab('Date') +
+  facet_wrap(~fire_size_class)
+p2 <- ggplot(data = earthquakes)+
+  geom_histogram(aes(x = Date), bins = 50)+
+  ggtitle('Earthquakes over time')
+
+#pacific_canes<- pacific_canes %>% group_by(Name) %>% summarize(Date = median(Date)) 
+
+p1
+#grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
+
+```{r}
+library(lubridate)
+library(plyr)
+pacific_canes$count = 1
+#pacific_canes <- pacific_canes[ pacific_canes$Name !='UNNAMED']
+pacific_canes <- pacific_canes %>% group_by(Name) %>%
+   summarize(date=median(Date))
+atlantic_canes <- atlantic_canes %>% group_by(Name) %>%
+   summarize(date=median(Date))
+canes <- join(pacific_canes, atlantic_canes, type = 'full', match = 'all')
+```
+
+
+```{r}
+canes$count = 1
+us_fires$count = 1
+earthquakes$count = 1
+canes$date <- as.Date(canes$date, 
+                        format = '%Y%m%d')
+canes_month <- canes %>% group_by(month=floor_date(date, "month")) %>%
+   summarize(amount=sum(count))
+usfires_month <- us_fires %>% group_by(month=floor_date(disc_date_pre, "month")) %>%
+   summarize(amount=sum(count))
+quakes_month <- earthquakes %>% group_by(month=floor_date(Date, "month")) %>%
+   summarize(amount=sum(count))
+```
+
+
+
+
+
+```{r}
+#countis overtime grouped by month
+library(ggplot2)
+library(gridExtra)
+p1 <- ggplot(data = usfires_month)+
+  geom_point(aes(x = month, y = amount)) +ggtitle('Us Fires') +
+  geom_smooth(aes(x = month, y = amount), method = 'lm', se = FALSE)
+p2 <- ggplot(data = quakes_month)+
+  geom_point(aes(x = month, y = amount))+ggtitle('Earthquakes')+
+  geom_smooth(aes(x = month, y = amount), method = 'lm', se = FALSE)
+p3 <- ggplot(data = pacific_month)+
+  geom_point(aes(x = month, y = amount))+ggtitle('Pacific Hurricanes')+
+  geom_smooth(aes(x = month, y = amount), method = 'lm', se = FALSE)
+p4 <- ggplot(data = atlantic_month)+
+  geom_point(aes(x = month, y = amount))+ggtitle('Atlantic Hurricanes')+
+  geom_smooth(aes(x = month, y = amount), method = 'lm', se = FALSE)
+
+grid.arrange(p1, p2, p3, p4, nrow = 2) 
+
+```
+
+```{r}
+us_ts <- subset(usfires_month, select='amount') #seasonal, constantish var
+us_ts <- ts(us_ts, start = 1992, frequency = 12)
+pacific_ts <- subset(pacific_month, select='amount') #seasonal, nonconstant var
+pacific_ts <- ts(pacific_ts)
+atlantic_ts <- subset(atlantic_month, select='amount') #seasonal, nonconstant var
+atlantic_ts <- ts(atlantic_ts, start = 1949, frequency = 12)
+earthquakes_ts <- subset(quakes_month, select='amount')#not seasonal
+earthquakes_ts <- ts(earthquakes_ts, start = 1965, frequency = 12)
+```
+
+
+```{r}
+#pacific_ts <- log(pacific_ts) #log transform to make variance fairly constant over time
+plot.ts(us_ts)
+pacific_components = decompose(us_ts)
+plot(pacific_components)
+```
+
+```{r}
+#library(ggfortify)
+#library(forecast)
+atlantic_ts <- log(atlantic_ts) #log transform to make variance fairly constant over time
+#plot.ts(atlantic_ts)
+#atlantic_components = decompose(atlantic_ts)
+#plot(atlantic_components)
+autoplot(atlantic_ts)
+ggsubseriesplot(atlantic_ts, time = atlantic_month$month)
+```
+  
+
+
+
+
+
